@@ -9,6 +9,8 @@ import android.os.Build
 import android.provider.MediaStore
 import android.view.*
 import android.widget.*
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.*
@@ -35,38 +37,79 @@ class MainActivity : ComponentActivity() {
     private var editing = false
     private val names = listOf("Kodak", "Fuji", "Leica Mono", "Polaroid", "Cinema", "Experimental")
     private val variants = listOf("Original", "Soft", "Warm", "Cool", "Fade", "Deep", "Matte", "Gold", "Night", "Classic", "Dream", "Punch", "Pastel", "Grainy", "Retro", "Bright", "Moody")
+    private val gold = Color.rgb(218, 185, 126)
+    private val gallery = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) {
+            try {
+                val bmp = contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+                if (bmp != null) { original = bmp; editing = true; action.text = "SAVE JPEG"; renderEdit() }
+            } catch (e: Exception) { status.text = "Gallery error: ${e.message}" }
+        }
+    }
     private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { if (it) startCamera() else status.text = "Camera permission diperlukan" }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = android.graphics.Color.BLACK
-        window.navigationBarColor = android.graphics.Color.BLACK
+        window.statusBarColor = Color.rgb(14,14,14)
+        window.navigationBarColor = Color.rgb(14,14,14)
+        // Android 15+ edge-to-edge: reserve system bar space explicitly.
         val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.rgb(14,14,14)) }
-        val title = TextView(this).apply { text = "D'CLASSIC  •  ULTIMATE"; textSize = 20f; setTextColor(Color.WHITE); gravity = Gravity.CENTER; setPadding(8,24,8,14) }
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
+        }
+        val title = TextView(this).apply {
+            text = "D'CLASSIC  /  ULTIMATE"; textSize = 17f
+            setTextColor(gold); gravity = Gravity.CENTER; setPadding(8,14,8,14)
+        }
         root.addView(title)
         photo = ImageView(this).apply { scaleType = ImageView.ScaleType.FIT_CENTER; setBackgroundColor(Color.BLACK) }
         root.addView(photo, LinearLayout.LayoutParams(-1, 0, 1f))
-        status = TextView(this).apply { setTextColor(Color.WHITE); gravity = Gravity.CENTER; textSize = 14f; text = "100 CLASSIC FILTERS"; setPadding(4,10,4,10) }
+        status = TextView(this).apply {
+            setTextColor(gold); gravity = Gravity.CENTER; textSize = 14f
+            text = "100 CLASSIC FILTERS"; setPadding(4,12,4,12)
+        }
         root.addView(status)
+        fun btn(label: String, fn: () -> Unit): Button = Button(this).apply {
+            text = label; isAllCaps = false; setTextColor(Color.WHITE)
+            setBackgroundTintList(android.content.res.ColorStateList.valueOf(Color.rgb(53,52,51)))
+            setOnClickListener { fn() }
+        }
         val navigation = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        fun btn(label: String, fn: () -> Unit): Button = Button(this).apply { text = label; setOnClickListener { fn() } }
         navigation.addView(btn("◀", { selected = (selected + 99) % 100; updateFilter() }), LinearLayout.LayoutParams(0,-2,1f))
-        filterButton = btn("FILTERS", { showFilters() })
+        filterButton = btn("99+ FILTERS", { showFilters() })
         navigation.addView(filterButton, LinearLayout.LayoutParams(0,-2,2f))
         navigation.addView(btn("▶", { selected = (selected + 1) % 100; updateFilter() }), LinearLayout.LayoutParams(0,-2,1f))
         root.addView(navigation)
-        strength = SeekBar(this).apply { max = 100; progress = power; setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(bar: SeekBar?, value: Int, fromUser: Boolean) { power = value; if (editing) renderEdit() else updateFilter() }
-            override fun onStartTrackingTouch(bar: SeekBar?) {}
-            override fun onStopTrackingTouch(bar: SeekBar?) {}
-        }) }
+        strength = SeekBar(this).apply {
+            max = 100; progress = power; progressTintList = android.content.res.ColorStateList.valueOf(gold)
+            thumbTintList = android.content.res.ColorStateList.valueOf(gold)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(bar: SeekBar?, value: Int, fromUser: Boolean) {
+                    power = value; if (editing) renderEdit() else updateFilter()
+                }
+                override fun onStartTrackingTouch(bar: SeekBar?) {}
+                override fun onStopTrackingTouch(bar: SeekBar?) {}
+            })
+        }
         root.addView(strength)
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        bottom.addView(btn("FLIP", { if (!editing) { front = !front; startCamera() } }), LinearLayout.LayoutParams(0,-2,1f))
+        bottom.addView(btn("GALLERY", { gallery.launch("image/*") }), LinearLayout.LayoutParams(0,-2,1f))
         action = btn("● SNAP", { if (editing) saveEdit() else snap() })
+        action.setTextColor(Color.rgb(30,27,22))
+        action.backgroundTintList = android.content.res.ColorStateList.valueOf(gold)
         bottom.addView(action, LinearLayout.LayoutParams(0,-2,2f))
-        bottom.addView(btn("BACK", { if (editing) { editing = false; original = null; action.text = "● SNAP"; startCamera() } }), LinearLayout.LayoutParams(0,-2,1f))
+        bottom.addView(btn("BACK", {
+            if (editing) { editing = false; original = null; action.text = "● SNAP"; startCamera(); updateFilter() }
+            else { front = !front; startCamera() }
+        }), LinearLayout.LayoutParams(0,-2,1f))
         root.addView(bottom)
+        val help = TextView(this).apply {
+            text = "GALLERY  •  SNAP / SAVE  •  BACK / FLIP"; textSize = 10f
+            setTextColor(Color.LTGRAY); gravity = Gravity.CENTER; setPadding(4,4,4,8)
+        }
+        root.addView(help)
         setContentView(root)
         updateFilter()
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) startCamera() else permission.launch(Manifest.permission.CAMERA)
@@ -77,10 +120,10 @@ class MainActivity : ComponentActivity() {
         val variant = index % 17
         return "${index + 1}/100  •  ${names[group]} ${variants[variant]}"
     }
-    private fun updateFilter() { status.text = label(selected) + "  •  $power%"; filterButton.text = "${selected+1} / 100"; if (editing) renderEdit() }
+    private fun updateFilter() { status.text = label(selected) + "  •  $power%"; filterButton.text = "99+ FILTERS  •  ${selected+1}/100"; if (editing) renderEdit() }
     private fun showFilters() {
         val list = (0 until 100).map { label(it) }.toTypedArray()
-        android.app.AlertDialog.Builder(this).setTitle("Choose classic filter").setSingleChoiceItems(list, selected) { d, which -> selected = which; updateFilter(); d.dismiss() }.setNegativeButton("Close", null).show()
+        android.app.AlertDialog.Builder(this).setTitle("FILTER LIBRARY  •  99+ FILTERS").setSingleChoiceItems(list, selected) { d, which -> selected = which; updateFilter(); d.dismiss() }.setNegativeButton("Close", null).show()
     }
     private fun startCamera() {
         if (editing) return
